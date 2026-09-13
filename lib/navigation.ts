@@ -15,11 +15,18 @@ export const adminNav: Array<{ href: string; label: string; icon: LucideIcon }> 
   { href: "/admin/settings", label: "Settings", icon: Settings2 },
 ];
 
-export const clientNav = (slug: string) => [
-  { href: `/${slug}`, label: "Overview", icon: LayoutDashboard },
-  { href: `/${slug}/automations`, label: "Automations", icon: Bot },
-  { href: `/${slug}/results`, label: "Results", icon: BarChart3 },
-  { href: `/${slug}/billing`, label: "Billing", icon: WalletCards },
-  { href: `/${slug}/support`, label: "Support", icon: LifeBuoy },
-  { href: `/${slug}/profile`, label: "Profile", icon: UserRound },
+const CLIENT_MODULES = [
+  { key: "overview", label: "Overview", icon: LayoutDashboard },
+  { key: "automations", label: "Automations", icon: Bot },
+  { key: "results", label: "Results", icon: BarChart3 },
+  { key: "billing", label: "Billing", icon: WalletCards },
+  { key: "support", label: "Support", icon: LifeBuoy },
+  { key: "profile", label: "Profile", icon: UserRound },
 ];
+
+export const clientNav = (slug: string, enabledModules: string[] = CLIENT_MODULES.map((item) => item.key)) =>
+  CLIENT_MODULES.filter((item) => item.key === "overview" || item.key === "profile" || enabledModules.includes(item.key)).map((item) => ({
+    href: item.key === "overview" ? `/${slug}` : `/${slug}/${item.key}`,
+    label: item.label,
+    icon: item.icon,
+  }));
