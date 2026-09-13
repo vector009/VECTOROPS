@@ -2,72 +2,52 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getAuthContext, requireAdmin } from "@/lib/auth";
 
-export async function requestAutomationControl(workflowId:string, desiredState:"running"|"paused"|"disabled") {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("request_automation_control", { p_workflow_id: workflowId, p_desired_state: desiredState, p_reason: "Requested from VectorOps" });
-  if (error) throw new Error("Automation control could not be requested.");
-  revalidatePath("/admin/automations");
-  return data;
+const SLUG=/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
+const HEX=/^#[0-9a-fA-F]{6}$/;
+const clean=(v:unknown)=>String(v??"").trim();
+const fail=(m:string):never=>{throw new Error(m)};
+
+export async function requestAutomationControl(workflowId:string, desiredState:"running"|"paused"|"disabled"){
+  const {profile}=await getAuthContext(); if(!profile) fail("You must be signed in.");
+  const s=await createClient(); const {data,error}=await s.rpc("request_automation_control",{p_workflow_id:workflowId,p_desired_state:desiredState,p_reason:"Requested from VectorOps"});
+  if(error) fail("Automation control could not be requested."); revalidatePath("/admin/automations"); return data;
 }
-
-export async function applyBillingAdjustment(args:{clientId:string; adjustmentType:"free_days"|"discount"|"credit"|"goodwill_extension"|"pause"|"renewal_date_change"; amountDelta:number; daysDelta:number; subscriptionId?:string|null; invoiceId?:string|null; description?:string}) {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("apply_billing_adjustment", { p_client_id:args.clientId,p_adjustment_type:args.adjustmentType,p_amount_delta:args.amountDelta,p_days_delta:args.daysDelta,p_subscription_id:args.subscriptionId||null,p_invoice_id:args.invoiceId||null,p_description:args.description||null });
-  if(error) throw new Error("Billing adjustment could not be applied.");
-  revalidatePath("/admin/money");
-  return data;
+export async function applyBillingAdjustment(a:{clientId:string;adjustmentType:"free_days"|"discount"|"credit"|"goodwill_extension"|"pause"|"renewal_date_change";amountDelta:number;daysDelta:number;subscriptionId?:string|null;invoiceId?:string|null;description?:string}){
+  await requireAdmin(); const s=await createClient(); const {data,error}=await s.rpc("apply_billing_adjustment",{p_client_id:a.clientId,p_adjustment_type:a.adjustmentType,p_amount_delta:a.amountDelta,p_days_delta:a.daysDelta,p_subscription_id:a.subscriptionId||null,p_invoice_id:a.invoiceId||null,p_description:a.description?.trim()||null});
+  if(error) fail("Billing adjustment could not be applied."); revalidatePath("/admin/money"); revalidatePath(`/admin/clients/${a.clientId}`); return data;
 }
-
-export async function addClientTicketMessage(ticketId:string, message:string) {
-  const supabase = await createClient();
-  const { data,error } = await supabase.rpc("add_client_ticket_message", { p_ticket_id:ticketId, p_message:message });
-  if(error) throw new Error("Message could not be sent.");
-  revalidatePath("/admin/support");
-  return data;
+export async function recordPayment(a:{invoiceId:string;amount:number;method?:string;reference?:string;notes?:string}){
+  await requireAdmin(); if(!Number.isFinite(a.amount)||a.amount<=0) fail("Payment amount is invalid."); const s=await createClient();
+  const {data,error}=await s.rpc("mark_payment_received",{p_invoice_id:a.invoiceId,p_amount:a.amount,p_method:a.method?.trim()||null,p_reference:a.reference?.trim()||null,p_notes:a.notes?.trim()||null});
+  if(error) fail("Payment could not be recorded. Check the invoice balance and try again."); revalidatePath("/admin/money"); return data;
 }
-
-export async function createClientOnboarding(formData: FormData) {
-  const { profile } = await (await import("@/lib/auth")).requireAdmin();
-  const supabase = await createClient();
-  const companyName = String(formData.get("company_name") || "").trim();
-  const contactName = String(formData.get("contact_name") || "").trim() || null;
-  const email = String(formData.get("email") || "").trim() || null;
-  const phone = String(formData.get("phone") || "").trim() || null;
-  const notes = String(formData.get("notes") || "").trim() || null;
-  const slug = String(formData.get("slug") || "").trim().toLowerCase();
-  const portalTitle = String(formData.get("portal_title") || "Client Portal").trim();
-  const primaryColor = String(formData.get("primary_color") || "#111827").trim();
-  const accentColor = String(formData.get("accent_color") || "#2563eb").trim();
-  const serviceName = String(formData.get("service_name") || "").trim();
-  const monthlyAmount = Number(formData.get("monthly_amount") || 0);
-  const currency = String(formData.get("currency") || "INR").trim().toUpperCase();
-  const billingDay = Number(formData.get("billing_day") || 1);
-  const instanceId = String(formData.get("n8n_instance_id") || "").trim() || null;
-  const clientPassword = String(formData.get("client_password") || "");
-
-  if (!companyName || !/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug)) throw new Error("Enter a valid company and portal slug.");
-  if (monthlyAmount < 0 || billingDay < 1 || billingDay > 28) throw new Error("Commercial details are invalid.");
-
-  const { data: client, error: clientError } = await supabase.from("clients").insert({ company_name:companyName, contact_name:contactName, email, phone, notes, status:"pending", created_by_user_id:profile.user_id }).select("id").single();
-  if (clientError || !client) throw new Error("Client could not be created.");
-  const clientId = client.id;
-
-  const { error: portalError } = await supabase.from("client_portal_config").insert({ client_id:clientId, slug, portal_title:portalTitle, primary_color:primaryColor, accent_color:accentColor });
-  if (portalError) throw new Error("Portal configuration could not be created.");
-  await supabase.from("client_onboarding").insert({ client_id:clientId, identity_complete:true, portal_complete:true, commercial_complete:Boolean(serviceName), infrastructure_complete:Boolean(instanceId), automations_complete:false, n8n_complete:false, account_complete:false, verification_complete:false });
-
-  if (serviceName) await supabase.from("subscriptions").insert({ client_id:clientId, service_name:serviceName, monthly_amount:monthlyAmount, currency, billing_day:billingDay, auto_renew:true, status:"pending" });
-  if (instanceId) await supabase.from("client_connections").insert({ client_id:clientId, n8n_instance_id:instanceId, status:"pending", metadata:{ provisioning_source:"vectorops_admin" } });
-
-  if (email && clientPassword) {
-    const admin = (await import("@/lib/supabase/admin")).createAdminClient();
-    const { data: authUser, error: authError } = await admin.auth.admin.createUser({ email, password:clientPassword, email_confirm:true });
-    if (authError || !authUser.user) throw new Error("Client account could not be provisioned.");
-    const { error: linkError } = await admin.rpc("link_client_profile", { p_user_id:authUser.user.id, p_client_id:clientId });
-    if (linkError) throw new Error("Client account was created but could not be linked.");
-    await supabase.from("client_onboarding").update({ account_complete:true }).eq("client_id",clientId);
-  }
-  revalidatePath("/admin/clients");
-  return { clientId, slug };
+export async function createInitialInvoice(id:string){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("create_initial_invoice",{p_subscription_id:id});if(error)fail("Initial invoice could not be created.");revalidatePath("/admin/money");return data}
+export async function createRenewalInvoice(id:string){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("create_next_renewal_invoice",{p_subscription_id:id});if(error)fail("Renewal invoice could not be created.");revalidatePath("/admin/money");return data}
+export async function addClientTicketMessage(ticketId:string,message:string){const{profile}=await getAuthContext();if(!profile)fail("You must be signed in.");const m=message.trim();if(!m)fail("Message cannot be empty.");const s=await createClient();const{data,error}=await s.rpc("add_client_ticket_message",{p_ticket_id:ticketId,p_message:m});if(error)fail("Message could not be sent.");revalidatePath("/admin/support");return data}
+export async function createSupportTicket(fd:FormData){const{user,profile}=await getAuthContext();if(!user||profile?.role!=="client"||!profile.client_id)fail("You don't have access to this portal.");const subject=clean(fd.get("subject")),category=clean(fd.get("category"))||null,priority=clean(fd.get("priority")),message=clean(fd.get("message"));if(!subject||subject.length>160||!message||message.length>10000)fail("Enter a subject and message.");if(!["low","normal","high","urgent"].includes(priority))fail("Invalid priority.");const s=await createClient();const{data:ticket,error}=await s.from("support_tickets").insert({client_id:profile.client_id,subject,category,priority,created_by_user_id:user.id}).select("id,ticket_number").single();if(error||!ticket)fail("Ticket could not be created.");const{error:me}=await s.rpc("add_client_ticket_message",{p_ticket_id:ticket.id,p_message:message});if(me)fail("Ticket was created, but the first message could not be added.");revalidatePath(`/${await portalSlugForClient(profile.client_id)}/support`);return ticket}
+export async function addAdminTicketMessage(ticketId:string,message:string,internal=false){const{user,profile}=await requireAdmin();const m=message.trim();if(!m)fail("Message cannot be empty.");const s=await createClient();const{data,error}=await s.from("support_ticket_messages").insert({ticket_id:ticketId,client_id:await ticketClientId(ticketId),sender_user_id:user.id,message:m,internal}).select("id").single();if(error||!data)fail("Support message could not be added.");revalidatePath("/admin/support");revalidatePath(`/admin/support/${ticketId}`);return{id:data.id,actor:profile.full_name}}
+export async function updateSupportTicket(a:{ticketId:string;status?:"open"|"pending_client"|"pending_admin"|"resolved"|"closed";priority?:"low"|"normal"|"high"|"urgent";assignedToUserId?:string|null}){await requireAdmin();const s=await createClient();const patch={...(a.status?{status:a.status}:{}),...(a.priority?{priority:a.priority}:{}),...(a.assignedToUserId!==undefined?{assigned_to_user_id:a.assignedToUserId}:{}),...(a.status==="resolved"?{resolved_at:new Date().toISOString()}: {})};const{data,error}=await s.from("support_tickets").update(patch).eq("id",a.ticketId).select("id").single();if(error||!data)fail("Ticket could not be updated.");revalidatePath("/admin/support");revalidatePath(`/admin/support/${a.ticketId}`);return data}
+export async function completeTask(id:string){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("complete_client_task",{p_task_id:id});if(error)fail("Task could not be completed.");revalidatePath("/admin/tasks");return data}
+export async function validateConnection(id:string){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("validate_client_connection",{p_connection_id:id});if(error)fail("Connection could not be verified.");revalidatePath("/admin/infrastructure");return data}
+export async function churnClient(id:string){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("churn_client",{p_client_id:id});if(error)fail("Client could not be churned.");revalidatePath("/admin/clients");revalidatePath(`/admin/clients/${id}`);return data}
+export async function reactivateClient(id:string,subscriptionId:string|null){await requireAdmin();const s=await createClient();const{data,error}=await s.rpc("reactivate_client",{p_client_id:id,p_subscription_id:subscriptionId});if(error)fail("Client could not be reactivated.");revalidatePath("/admin/clients");revalidatePath(`/admin/clients/${id}`);return data}
+export async function updatePortalConfig(a:{clientId:string;slug:string;portalTitle:string;primaryColor:string;accentColor:string}){await requireAdmin();const slug=a.slug.trim().toLowerCase();if(!SLUG.test(slug)||!HEX.test(a.primaryColor)||!HEX.test(a.accentColor))fail("Portal configuration is invalid.");const s=await createClient();const{data,error}=await s.from("client_portal_config").update({slug,portal_title:a.portalTitle.trim().slice(0,120),primary_color:a.primaryColor,accent_color:a.accentColor}).eq("client_id",a.clientId).select("client_id,slug,portal_title,primary_color,accent_color").single();if(error||!data)fail("Portal configuration could not be updated.");revalidatePath(`/admin/clients/${a.clientId}`);revalidatePath(`/login/client/${slug}`);return data}
+export async function resetClientPassword(clientId:string,password:string){await requireAdmin();if(password.length<12)fail("Client passwords must be at least 12 characters.");const s=await createClient();const{data:profile,error}=await s.from("profiles").select("user_id").eq("client_id",clientId).eq("role","client").maybeSingle();if(error||!profile)fail("No client Auth account is linked to this tenant.");const admin=createAdminClient();const{error:updateError}=await admin.auth.admin.updateUserById(profile.user_id,{password});if(updateError)fail("Client password could not be reset.");await s.from("client_onboarding").update({account_complete:true}).eq("client_id",clientId);revalidatePath(`/admin/clients/${clientId}`);return{ok:true}}
+export async function createClientOnboarding(fd:FormData){const{profile}=await requireAdmin();const s=await createClient();const admin=createAdminClient();const companyName=clean(fd.get("company_name")),contactName=clean(fd.get("contact_name"))||null,email=clean(fd.get("email")).toLowerCase()||null,phone=clean(fd.get("phone"))||null,notes=clean(fd.get("notes"))||null,slug=clean(fd.get("slug")).toLowerCase(),portalTitle=clean(fd.get("portal_title"))||"Client Portal",logoUrl=clean(fd.get("logo_url"))||null,faviconUrl=clean(fd.get("favicon_url"))||null,primaryColor=clean(fd.get("primary_color"))||"#111827",accentColor=clean(fd.get("accent_color"))||"#2563eb",serviceName=clean(fd.get("service_name")),monthlyAmount=Number(fd.get("monthly_amount")||0),currency=(clean(fd.get("currency"))||"INR").toUpperCase(),billingDay=Number(fd.get("billing_day")||1),instanceId=clean(fd.get("n8n_instance_id"))||null,password=String(fd.get("client_password")||"");
+  if(!companyName||companyName.length>160||!SLUG.test(slug))fail("Enter a valid company and portal slug.");if(!Number.isFinite(monthlyAmount)||monthlyAmount<0||!Number.isInteger(billingDay)||billingDay<1||billingDay>28)fail("Commercial details are invalid.");if(!HEX.test(primaryColor)||!HEX.test(accentColor))fail("Brand colors must be six-digit hex values.");if(password&&(!email||password.length<12))fail("A client account requires an email and a password of at least 12 characters.");
+  if(instanceId){const{data:i}=await s.from("n8n_instances").select("id,status").eq("id",instanceId).maybeSingle();if(!i)fail("Selected n8n instance is unavailable.")}
+  const{data:client,error:ce}=await s.from("clients").insert({company_name:companyName,contact_name:contactName,email,phone,notes,status:"pending",created_by_user_id:profile.user_id}).select("id").single();if(ce||!client)fail("Client could not be created.");const clientId=client.id;
+  try{
+    const{error:pe}=await s.from("client_portal_config").insert({client_id:clientId,slug,portal_title:portalTitle.slice(0,120),logo_url:logoUrl,favicon_url:faviconUrl,primary_color:primaryColor,accent_color:accentColor});if(pe)fail("Portal configuration could not be created.");
+    const{error:oe}=await s.from("client_onboarding").insert({client_id:clientId,identity_complete:true,portal_complete:true,commercial_complete:Boolean(serviceName),infrastructure_complete:Boolean(instanceId),automations_complete:false,n8n_complete:false,account_complete:false,verification_complete:false});if(oe)fail("Onboarding record could not be created.");
+    if(serviceName){const{error}=await s.from("subscriptions").insert({client_id:clientId,service_name:serviceName,monthly_amount:monthlyAmount,currency,billing_day:billingDay,auto_renew:true,status:"pending"});if(error)fail("Subscription could not be created.")}
+    if(instanceId){const{error}=await s.from("client_connections").insert({client_id:clientId,n8n_instance_id:instanceId,status:"pending",metadata:{provisioning_source:"vectorops_admin"}});if(error)fail("Client connection could not be created.")}
+    if(email&&password){const{data:users}=await admin.auth.admin.listUsers({page:1,perPage:1000});if(users.users.some(u=>(u.email||"").toLowerCase()===email))fail("An Auth account already exists for this email. Use the client password reset flow instead.");const{data:auth,error}=await admin.auth.admin.createUser({email,password,email_confirm:true});if(error||!auth.user)fail("Client account could not be provisioned.");const{error:link}=await admin.rpc("link_client_profile",{p_user_id:auth.user.id,p_client_id:clientId});if(link){await admin.auth.admin.deleteUser(auth.user.id);fail("Client account could not be linked.")}const{error:ae}=await s.from("client_onboarding").update({account_complete:true}).eq("client_id",clientId);if(ae)fail("Client account status could not be recorded.")}
+  }catch(e){await Promise.allSettled([admin.from("client_portal_config").delete().eq("client_id",clientId),admin.from("client_onboarding").delete().eq("client_id",clientId),admin.from("subscriptions").delete().eq("client_id",clientId),admin.from("client_connections").delete().eq("client_id",clientId),admin.from("clients").delete().eq("id",clientId)]);if(e instanceof Error)throw e;fail("Client onboarding could not be completed.")}
+  revalidatePath("/admin/clients");return{clientId,slug}
 }
+async function ticketClientId(id:string){const s=await createClient();const{data,error}=await s.from("support_tickets").select("client_id").eq("id",id).single();if(error||!data)fail("Support ticket could not be found.");return data.client_id}
+async function portalSlugForClient(id:string){const s=await createClient();const{data}=await s.from("client_portal_config").select("slug").eq("client_id",id).maybeSingle();return data?.slug||""}
