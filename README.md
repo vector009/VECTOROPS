@@ -3,27 +3,47 @@
 VectorOps is a multi-tenant AI automation agency operating system. This repository is a **fresh Next.js App Router application** and intentionally does not migrate the previous Vite frontend.
 
 ## Stack
-- Next.js 16 / App Router
+
+- Next.js 16 (App Router)
 - React 19 / TypeScript
 - Tailwind CSS v4
 - Supabase + `@supabase/ssr`
 - Lucide icons
 - PWA manifest + service worker
 
-## Environment
-Use `.env.local` with `.env.example`. Browser-safe variables are `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Trusted-only variables are `SUPABASE_SECRET_KEY` (preferred) or `SUPABASE_SERVICE_ROLE_KEY`, plus `ADMIN_AUTH_EMAIL`.
+## Supabase connection
 
-## Security model
-The visible login form contains only a password. The trusted server resolves the internal Supabase Auth identity, performs real password verification, then validates the actual profile role and (for clients) tenant relationship. Client passwords are never stored in VectorOps tables, URLs, browser storage, logs, or source code.
+The application is wired to the existing VectorOps Supabase project. It uses the public project URL and publishable key in the browser/server SSR client, while privileged Auth Admin operations use a server-only secret.
 
-The browser never calls privileged n8n APIs and never receives raw n8n secrets. Automation controls use the existing VectorOps control RPC and keep desired state separate from actual state.
+Create `.env.local` from `.env.example` and set:
 
-## Routes
-Admin: `/admin`, `/admin/overview`, `/admin/clients`, `/admin/clients/new`, `/admin/automations`, `/admin/money`, `/admin/calendar`, `/admin/tasks`, `/admin/support`, `/admin/infrastructure`, `/admin/activity`, `/admin/audit`, `/admin/settings`, plus tenant detail routes.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SECRET_KEY` (preferred) or `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_AUTH_EMAIL`
 
-Client: `/<slug>`, `/<slug>/automations`, `/<slug>/results`, `/<slug>/billing`, `/<slug>/support`, `/<slug>/profile`.
+Never commit `.env*`, service-role/secret keys, n8n credentials, client passwords, or private tokens.
 
-## Development
+## Password-only access
+
+The visible login form contains only a password. The trusted server resolves the internal Supabase Auth identity, performs the real password verification, and then verifies the actual `profiles.role`. Client access also verifies the profile's `client_id` against the requested portal slug and allowed client status.
+
+Client onboarding can provision a real Supabase Auth account through the trusted server. Passwords are never stored in VectorOps application tables, URLs, browser storage, logs, or source control.
+
+## Data and security rules
+
+The existing Supabase database is the source of truth. No local mock database is used. RLS remains the final tenant boundary. Server actions use existing tables/RPCs only; privileged n8n APIs are never called from the browser, and no browser-visible n8n secret is used.
+
+Automation controls preserve desired state versus actual state and display synchronization/error states until backend confirmation exists. Missing telemetry/control services are represented as setup or unavailable states rather than fake success.
+
+## Operational areas
+
+Admin: overview, attention, clients, onboarding, portal configuration, automations, workflow detail, money, partial payments, billing adjustments, calendar, tasks, support, infrastructure, activity, audit, settings.
+
+Client: business-specific overview, automations, results/reports, billing/payment history, support, profile, configured modules.
+
+## Development and release checks
+
 ```bash
 npm install
 npm run dev
@@ -33,4 +53,4 @@ npm run build
 npm start
 ```
 
-Node.js 20.9+ is required by current Next.js guidance. The current environment used for this conversion could not complete npm package download, so dependency-backed build/lint execution must be run in a networked CI/development environment before release.
+Node.js 20.9+ is required. The current execution environment could not complete npm package download, so dependency-backed typecheck/lint/build must be run in a networked CI/development environment before production release. The codebase is structured for those checks and the repository intentionally does not claim them as passed without execution.
