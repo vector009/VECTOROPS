@@ -12,7 +12,7 @@ export async function adminOverview(): Promise<AdminOverview> {
     s.from("invoices").select("id,total_amount,amount_paid,status,due_date,client_id,invoice_number,issue_date,invoice_type,period_start,period_end").limit(1000),
     s.from("payments").select("id,client_id,invoice_id,amount,payment_date,status,method,reference").eq("status","received").order("payment_date",{ascending:false}).limit(2000),
     s.from("support_tickets").select("id,status,priority,client_id,subject,created_at,updated_at").neq("status","closed").limit(300),
-    s.from("workflows").select("id,status,actual_state,desired_state,client_id,workflow_name,business_name,last_failure_at,last_error,updated_at,last_success_at").limit(1000),
+    s.from("workflows").select("id,status,actual_state,desired_state,client_id,n8n_instance_id,workflow_name,business_name,last_failure_at,last_error,updated_at,last_success_at,n8n_workflow_id").limit(1000),
     s.from("n8n_instances").select("id,instance_name,status,last_sync_status,last_sync_at,last_sync_error,last_verified_at,hosting_type").limit(200),
     s.from("client_onboarding").select("client_id,identity_complete,portal_complete,commercial_complete,infrastructure_complete,automations_complete,n8n_complete,account_complete,verification_complete").limit(300),
     s.from("credentials").select("id,client_id,provider_name,credential_name,expires_at,active").limit(500),
@@ -39,14 +39,14 @@ export async function adminOverview(): Promise<AdminOverview> {
 export async function clientOverview(clientId:string): Promise<ClientOverview> {
   const s=await createClient();
   const [workflows,events,reports,subscriptions,invoices,payments,tickets,controls]=await Promise.all([
-    s.from("workflows").select("id,workflow_name,business_name,business_job,status,desired_state,actual_state,last_execution_at,last_success_at,last_failure_at,last_error,client_visible,config").eq("client_id",clientId).eq("client_visible",true).limit(200),
+    s.from("workflows").select("id,client_id,n8n_instance_id,workflow_name,n8n_workflow_id,business_name,business_job,status,desired_state,actual_state,last_execution_at,last_success_at,last_failure_at,last_error,client_visible,config").eq("client_id",clientId).eq("client_visible",true).limit(200),
     s.from("business_events").select("id,event_type,event_value,currency,occurred_at,workflow_id,payload").eq("client_id",clientId).order("occurred_at",{ascending:false}).limit(500),
     s.from("client_reports").select("id,report_type,period_start,period_end,title,summary,metrics,insights,generated_at").eq("client_id",clientId).eq("visible_to_client",true).order("period_end",{ascending:false}).limit(50),
     s.from("subscriptions").select("id,service_name,monthly_amount,currency,billing_day,auto_renew,status,current_period_start,current_period_end,start_date,metadata").eq("client_id",clientId).order("created_at",{ascending:false}).limit(10),
     s.from("invoices").select("id,invoice_number,total_amount,amount_paid,status,due_date,issue_date,period_start,period_end,description,invoice_type").eq("client_id",clientId).order("issue_date",{ascending:false}).limit(100),
     s.from("payments").select("id,invoice_id,amount,payment_date,method,reference,status,notes,created_at").eq("client_id",clientId).order("payment_date",{ascending:false}).limit(100),
     s.from("support_tickets").select("id,ticket_number,subject,status,priority,category,created_at,updated_at,resolved_at").eq("client_id",clientId).order("updated_at",{ascending:false}).limit(50),
-    s.from("client_automation_controls").select("id,workflow_id,desired_state,actual_state,sync_status,requested_at,last_sync_at,last_control_error").eq("client_id",clientId).limit(200),
+    s.from("client_automation_controls").select("id,workflow_id,desired_state,actual_state,sync_status,requested_at,last_sync_at,last_control_error,client_id").eq("client_id",clientId).limit(200),
   ]);
   const ev=safe(events.data) as BusinessEvent[];
   const wf=safe(workflows.data) as Workflow[];
