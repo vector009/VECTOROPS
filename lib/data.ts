@@ -23,13 +23,14 @@ export async function adminOverview() {
 
 export async function clientOverview(clientId:string) {
   const supabase = await createClient();
-  const [workflows, events, reports, subscription, invoices, tickets] = await Promise.all([
+  const [workflows, events, reports, subscription, invoices, payments, tickets] = await Promise.all([
     supabase.from("workflows").select("id,workflow_name,business_name,status,desired_state,actual_state,last_execution_at,last_success_at,last_failure_at,last_error,client_visible").eq("client_id",clientId).eq("client_visible",true).limit(100),
     supabase.from("business_events").select("id,event_type,event_value,currency,occurred_at,workflow_id,payload").eq("client_id",clientId).order("occurred_at",{ascending:false}).limit(200),
     supabase.from("client_reports").select("id,report_type,period_start,period_end,title,summary,metrics,insights,generated_at").eq("client_id",clientId).eq("visible_to_client",true).order("period_end",{ascending:false}).limit(20),
     supabase.from("subscriptions").select("id,service_name,monthly_amount,currency,billing_day,auto_renew,status,current_period_start,current_period_end,start_date").eq("client_id",clientId).order("created_at",{ascending:false}).limit(5),
     supabase.from("invoices").select("id,invoice_number,total_amount,amount_paid,status,due_date,issue_date,period_start,period_end,description").eq("client_id",clientId).order("issue_date",{ascending:false}).limit(50),
+    supabase.from("payments").select("id,invoice_id,amount,payment_date,method,reference,status,notes,created_at").eq("client_id",clientId).order("payment_date",{ascending:false}).limit(100),
     supabase.from("support_tickets").select("id,ticket_number,subject,status,priority,category,created_at,updated_at").eq("client_id",clientId).order("updated_at",{ascending:false}).limit(20),
   ]);
-  return { workflows:workflows.data||[], events:events.data||[], reports:reports.data||[], subscriptions:subscription.data||[], invoices:invoices.data||[], tickets:tickets.data||[] };
+  return { workflows:workflows.data||[], events:events.data||[], reports:reports.data||[], subscriptions:subscription.data||[], invoices:invoices.data||[], payments:payments.data||[], tickets:tickets.data||[] };
 }
