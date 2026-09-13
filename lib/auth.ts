@@ -1,32 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import type { Profile } from "@/lib/types";
 
-export async function getAuthContext() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { user: null, profile: null };
-  const { data: profile } = await supabase.from("profiles").select("user_id,role,client_id,full_name,phone").eq("user_id", user.id).maybeSingle();
-  return { user, profile: (profile as Profile | null) };
-}
-
-export async function requireAdmin() {
-  const ctx = await getAuthContext();
-  if (!ctx.user) redirect("/login/admin");
-  if (ctx.profile?.role !== "admin") redirect("/unauthorized?kind=admin");
-  return ctx as { user: NonNullable<typeof ctx.user>; profile: Profile };
-}
-
-export async function requireClientSlug(slug: string) {
-  const ctx = await getAuthContext();
-  if (!ctx.user) redirect(`/login/client/${encodeURIComponent(slug)}`);
-  if (ctx.profile?.role !== "client" || !ctx.profile.client_id) redirect("/unauthorized?kind=client");
-
-  const admin = createAdminClient();
-  const { data: portal } = await admin.from("client_portal_config").select("client_id,slug,portal_title,enabled_modules,primary_color,accent_color,logo_url,favicon_url,dashboard_config,kpi_config,terminology,client_settings_schema").eq("slug", slug).maybeSingle();
-  if (!portal || portal.client_id !== ctx.profile.client_id) redirect("/unauthorized?kind=client");
-  const { data: client } = await admin.from("clients").select("id,company_name,contact_name,email,phone,status,notes").eq("id", ctx.profile.client_id).maybeSingle();
-  if (!client || !["active", "pending"].includes(client.status)) redirect("/unauthorized?kind=client");
-  return { ...ctx, portal, client };
-}
+export async function getAuthContext(){const s=await createClient();const{data:claimsData,error:claimsError}=await s.auth.getClaims();const userId=claimsData?.claims?.sub;if(claimsError||typeof userId!=="string")return{user:null,profile:null};const[{data:userData},{data:profile}]=await Promise.all([s.auth.getUser(),s.from("profiles").select("user_id,role,client_id,full_name,phone").eq("user_id",userId).maybeSingle()]);return{user:userData.user,profile:(profile as Profile|null)}}
+export async function requireAdmin(){const ctx=await getAuthContext();if(!ctx.user)redirect("/login/admin");const profile=ctx.profile;if(!profile||profile.role!=="admin")redirect("/unauthorized?kind=admin");return{user:ctx.user,profile}}
+export async function requireClientSlug(slug:string){const ctx=await getAuthContext();if(!ctx.user)redirect(`/login/client/${encodeURIComponent(slug)}`);const profile=ctx.profile;if(!profile||profile.role!=="client"||!profile.client_id)redirect("/unauthorized?kind=client");const s=await createClient();const{data:portal}=await s.from("client_portal_config").select("client_id,slug,portal_title,enabled_modules,primary_color,accent_color,logo_url,favicon_url,dashboard_config,kpi_config,terminology,client_settings_schema").eq("slug",slug).maybeSingle();if(!portal||portal.client_id!==profile.client_id)redirect("/unauthorized?kind=client");const{data:client}=await s.from("clients").select("id,company_name,contact_name,email,phone,status,notes").eq("id",profile.client_id).maybeSingle();if(!client||!["active","pending"].includes(client.status))redirect("/unauthorized?kind=client");return{user:ctx.user,profile,portal,client}}
