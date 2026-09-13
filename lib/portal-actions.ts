@@ -1,0 +1,6 @@
+"use server";
+import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+const SLUG=/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;const HEX=/^#[0-9a-fA-F]{6}$/;
+export async function savePortalConfig(fd:FormData){await requireAdmin();const clientId=String(fd.get("clientId")||"").trim(),slug=String(fd.get("slug")||"").trim().toLowerCase(),portalTitle=String(fd.get("portalTitle")||"").trim(),primaryColor=String(fd.get("primaryColor")||"").trim(),accentColor=String(fd.get("accentColor")||"").trim();const enabledModules=fd.getAll("enabled_modules").map(String).filter(x=>["overview","automations","results","billing","support","profile"].includes(x));if(!clientId||!SLUG.test(slug)||!HEX.test(primaryColor)||!HEX.test(accentColor)||!portalTitle)throw new Error("Portal configuration is invalid.");const s=await createClient();const{error}=await s.from("client_portal_config").update({slug,portal_title:portalTitle.slice(0,120),primary_color:primaryColor,accent_color:accentColor,enabled_modules:enabledModules.length?enabledModules:["overview"]}).eq("client_id",clientId);if(error)throw new Error("Portal configuration could not be updated.");revalidatePath(`/admin/clients/${clientId}`);revalidatePath(`/${slug}`);revalidatePath(`/login/client/${slug}`)}
