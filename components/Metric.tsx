@@ -1,0 +1,1 @@
+export function Metric({ label, value, detail }: { label:string; value:string; detail?:string }) { return <div className="vx-surface vx-lift rounded-2xl p-4"><div className="vx-kicker">{label}</div><div className="mt-3 text-2xl font-semibold tracking-tight text-white">{value}</div>{detail && <div className="mt-1 text-xs text-slate-500">{detail}</div>}</div>; }

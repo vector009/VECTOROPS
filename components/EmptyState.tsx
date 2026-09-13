@@ -1,0 +1,1 @@
+export function EmptyState({ title, description }: { title:string; description:string }) { return <div className="vx-inset rounded-2xl px-6 py-12 text-center"><div className="text-sm font-semibold text-slate-200">{title}</div><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">{description}</p></div>; }

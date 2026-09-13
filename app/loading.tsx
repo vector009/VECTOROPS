@@ -1,0 +1,1 @@
+export default function Loading(){return <main className="vx-shell min-h-screen p-6"><div className="mx-auto max-w-6xl space-y-3"><div className="h-8 w-48 animate-pulse rounded-xl bg-white/[.05]"/><div className="grid gap-3 sm:grid-cols-4">{Array.from({length:4}).map((_,i)=><div key={i} className="h-28 animate-pulse rounded-2xl bg-white/[.035]"/> )}</div></div></main>}
